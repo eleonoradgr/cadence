@@ -23,6 +23,7 @@
 package config
 
 import (
+	"github.com/uber/cadence/common/log"
 	"time"
 
 	"github.com/uber/cadence/common/config"
@@ -133,9 +134,13 @@ func NewMigrationConfig(dc *dynamicconfig.Collection) *MigrationConfig {
 	}
 }
 
-func (c *MigrationConfig) GetMigrationMode(namespace string) types.MigrationMode {
+func (c *MigrationConfig) GetMigrationMode(namespace string, logger log.Logger) types.MigrationMode {
+	result := c.MigrationMode(namespace)
+	logger.Info("flipr property for namespace " + namespace + " result " + result)
 	mode, ok := ConfigMode[c.MigrationMode(namespace)]
+
 	if !ok {
+		logger.Info("property not mapped, returning default")
 		return ConfigMode[MigrationModeONBOARDED]
 	}
 	return mode
