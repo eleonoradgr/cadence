@@ -55,6 +55,7 @@ func (h *executor) Heartbeat(ctx context.Context, request *types.ExecutorHeartbe
 
 	now := h.timeSource.Now().UTC()
 	mode := h.migrationConfiguration.GetMigrationMode(request.Namespace)
+	h.logger.Info("Migration mode "+mode.String(), tag.ShardNamespace(request.Namespace), tag.ShardExecutor(request.ExecutorID))
 
 	switch mode {
 	case types.MigrationModeINVALID:

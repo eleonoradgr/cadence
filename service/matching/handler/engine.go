@@ -54,6 +54,7 @@ import (
 	"github.com/uber/cadence/service/matching/config"
 	"github.com/uber/cadence/service/matching/event"
 	"github.com/uber/cadence/service/matching/tasklist"
+	"github.com/uber/cadence/service/sharddistributor/client/executorclient"
 )
 
 // If sticky poller is not seem in last 10s, we treat it as sticky worker unavailable
@@ -90,6 +91,7 @@ type (
 		metricsClient               metrics.Client
 		taskListsLock               sync.RWMutex                             // locks mutation of taskLists
 		taskLists                   map[tasklist.Identifier]tasklist.Manager // Convert to LRU cache
+		executor                    executorclient.Executor[tasklist.ShardProcessor]
 		config                      *config.Config
 		lockableQueryTaskMap        lockableQueryTaskMap
 		domainCache                 cache.DomainCache
@@ -260,11 +262,7 @@ func (e *matchingEngineImpl) getTaskListManager(taskList *tasklist.Identifier, t
 		float64(len(e.taskLists)),
 	)
 	e.taskListsLock.Unlock()
-	err = mgr.Start()
-	if err != nil {
-		logger.Info("Task list manager state changed", tag.LifeCycleStartFailed, tag.Error(err))
-		return nil, err
-	}
+	mgr.Start(context.Background())
 	logger.Info("Task list manager state changed", tag.LifeCycleStarted)
 	event.Log(event.E{
 		TaskListName: taskList.GetName(),

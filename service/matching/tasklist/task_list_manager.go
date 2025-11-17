@@ -248,23 +248,18 @@ func NewManager(p ManagerParams) (Manager, error) {
 	}
 	tlMgr.limiter = newTaskListLimiter(p.TimeSource, tlMgr.scope, taskListConfig, numReadPartitionsFn)
 	tlMgr.matcher = newTaskMatcher(taskListConfig, fwdr, tlMgr.scope, isolationGroups, tlMgr.logger, p.TaskList, p.TaskListKind, tlMgr.limiter).(*taskMatcherImpl)
-	tlMgr.taskWriter = newTaskWriter(tlMgr)
+	tlMgr.taskWriter, err = newTaskWriter(tlMgr)
+	if err != nil {
+		return nil, err
+	}
 	tlMgr.taskReader = newTaskReader(tlMgr, isolationGroups)
 	tlMgr.taskCompleter = newTaskCompleter(tlMgr, historyServiceOperationRetryPolicy)
-	tlMgr.startWG.Add(1)
-	return tlMgr, nil
-}
 
-// Starts reading pump for the given task list.
-// The pump fills up taskBuffer from persistence.
-func (c *taskListManagerImpl) Start() error {
-	defer c.startWG.Done()
-
-	if !c.taskListID.IsRoot() && c.taskListKind == types.TaskListKindNormal {
+	if !tlMgr.taskListID.IsRoot() && tlMgr.taskListKind == types.TaskListKindNormal {
 		var info *persistence.TaskListInfo
-		err := c.throttleRetry.Do(context.Background(), func(ctx context.Context) error {
+		err := tlMgr.throttleRetry.Do(context.Background(), func(ctx context.Context) error {
 			var err error
-			info, err = c.db.GetTaskListInfo(c.taskListID.GetRoot())
+			info, err = tlMgr.db.GetTaskListInfo(tlMgr.taskListID.GetRoot())
 			return err
 		})
 		if err != nil {
@@ -275,27 +270,35 @@ func (c *taskListManagerImpl) Start() error {
 			// This will not happen once we fully migrate partition config to database. Because in that case, root partition will always be created before non-root partitions.
 			var e *types.EntityNotExistsError
 			if !errors.As(err, &e) {
-				c.Stop()
-				return err
+				return nil, err
 			}
 		} else {
-			c.partitionConfig = info.AdaptivePartitionConfig.ToInternalType()
+			tlMgr.partitionConfig = info.AdaptivePartitionConfig.ToInternalType()
 		}
 	}
-	if err := c.taskWriter.Start(); err != nil {
-		c.Stop()
-		return err
+	if tlMgr.taskListID.IsRoot() && tlMgr.taskListKind == types.TaskListKindNormal {
+		tlMgr.logger.Info("get task list partition config from db", tag.Dynamic("root-partition", tlMgr.taskListID.GetRoot()), tag.Dynamic("task-list-partition-config", tlMgr.partitionConfig))
+		tlMgr.partitionConfig = tlMgr.db.PartitionConfig().ToInternalType()
 	}
+	tlMgr.startWG.Add(1)
+	return tlMgr, nil
+}
+
+// Starts reading pump for the given task list.
+// The pump fills up taskBuffer from persistence.
+func (c *taskListManagerImpl) Start(ctx context.Context) {
+	defer c.startWG.Done()
+
+	c.taskWriter.Start()
 	if c.taskListID.IsRoot() && c.taskListKind == types.TaskListKindNormal {
-		c.partitionConfig = c.db.PartitionConfig().ToInternalType()
-		c.logger.Info("get task list partition config from db", tag.Dynamic("root-partition", c.taskListID.GetRoot()), tag.Dynamic("task-list-partition-config", c.partitionConfig))
+		c.logger.Info("notifying the non-root partitions", tag.Dynamic("root-partition", c.taskListID.GetRoot()), tag.Dynamic("task-list-partition-config", c.partitionConfig))
 		if c.partitionConfig != nil {
 			startConfig := c.partitionConfig
 			// push update notification to all non-root partitions on start
 			c.stopWG.Add(1)
 			go func() {
 				defer c.stopWG.Done()
-				c.notifyPartitionConfig(context.Background(), nil, startConfig)
+				c.notifyPartitionConfig(ctx, nil, startConfig)
 			}()
 		}
 	}
@@ -305,8 +308,6 @@ func (c *taskListManagerImpl) Start() error {
 	if c.adaptiveScaler != nil {
 		c.adaptiveScaler.Start()
 	}
-
-	return nil
 }
 
 // Stop stops task list manager and calls Stop on all background child objects

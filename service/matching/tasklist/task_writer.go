@@ -76,8 +76,8 @@ type (
 // errShutdown indicates that the task list is shutting down
 var errShutdown = errors.New("task list shutting down")
 
-func newTaskWriter(tlMgr *taskListManagerImpl) *taskWriter {
-	return &taskWriter{
+func newTaskWriter(tlMgr *taskListManagerImpl) (*taskWriter, error) {
+	tw := &taskWriter{
 		db:             tlMgr.db,
 		config:         tlMgr.config,
 		taskListID:     tlMgr.taskListID,
@@ -93,21 +93,22 @@ func newTaskWriter(tlMgr *taskListManagerImpl) *taskWriter {
 			backoff.WithRetryableError(persistence.IsTransientError),
 		),
 	}
-}
-
-func (w *taskWriter) Start() error {
 	// Make sure to grab the range first before starting task writer, as it needs the range to initialize maxReadLevel
-	state, err := w.renewLeaseWithRetry()
+	state, err := tw.renewLeaseWithRetry()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	w.taskAckManager.SetAckLevel(state.ackLevel)
-	block := rangeIDToTaskIDBlock(state.rangeID, w.config.RangeSize)
-	w.taskIDBlock = block
-	w.maxReadLevel = block.start - 1
+	tw.taskAckManager.SetAckLevel(state.ackLevel)
+	block := rangeIDToTaskIDBlock(state.rangeID, tw.config.RangeSize)
+	tw.taskIDBlock = block
+	tw.maxReadLevel = block.start - 1
+
+	return tw, nil
+}
+
+func (w *taskWriter) Start() {
 	go w.taskWriterLoop()
-	return nil
 }
 
 // Stop stops the taskWriter
