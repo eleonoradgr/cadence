@@ -55,6 +55,9 @@ func (h *executor) Heartbeat(ctx context.Context, request *types.ExecutorHeartbe
 
 	now := h.timeSource.Now().UTC()
 	mode := h.migrationConfiguration.GetMigrationMode(request.Namespace)
+	test1 := h.migrationConfiguration.GetMigrationMode("test-local-passthrough-shadow")
+	test2 := h.migrationConfiguration.GetMigrationMode("shard-distributor-canary-ephemeral-staging-dca")
+	h.logger.Info("migration mode", tag.ShardNamespace(request.Namespace), tag.Dynamic("migration-mode", mode), tag.Dynamic("local-pass", test1), tag.Dynamic("canary", test2))
 
 	switch mode {
 	case types.MigrationModeINVALID:
@@ -107,6 +110,7 @@ func (h *executor) assignShardsInCurrentHeartbeat(ctx context.Context, request *
 	}
 	err := h.storage.DeleteExecutors(ctx, request.GetNamespace(), []string{request.GetExecutorID()}, store.NopGuard())
 	if err != nil {
+		h.logger.Error("deletion of executor failed", tag.Error(err))
 		return nil, &types.InternalServiceError{Message: fmt.Sprintf("failed to delete assigned shards: %v", err)}
 	}
 	for shard := range request.GetShardStatusReports() {
@@ -121,6 +125,7 @@ func (h *executor) assignShardsInCurrentHeartbeat(ctx context.Context, request *
 			},
 		},
 	}
+	h.logger.Info("External assignment", tag.ShardNamespace(request.Namespace), tag.Dynamic("assign-shards-request", assignShardsRequest))
 	err = h.storage.AssignShards(ctx, request.GetNamespace(), assignShardsRequest, store.NopGuard())
 	if err != nil {
 		return nil, &types.InternalServiceError{Message: fmt.Sprintf("failed to assign shards in the current heartbeat: %v", err)}
