@@ -85,14 +85,23 @@ func Decompress(data []byte) ([]byte, error) {
 
 // DecompressAndUnmarshal decompresses data and unmarshals it into the target
 func DecompressAndUnmarshal(data []byte, target interface{}) error {
-	decompressed, err := Decompress(data)
-	if err != nil {
-		return fmt.Errorf("decompress: %w", err)
+	//decompressed, err := Decompress(data)
+	//if err != nil {
+	//	return fmt.Errorf("decompress: %w", err)
+	//}
+	var r io.Reader
+	if !bytes.HasPrefix(data, _snappyHeader) {
+		r = bytes.NewReader(data)
+	} else {
+		r = snappy.NewReader(bytes.NewReader(data))
 	}
-
-	if err := json.Unmarshal(decompressed, target); err != nil {
+	if err := json.NewDecoder(r).Decode(target); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
+
+	//if err := json.Unmarshal(decompressed, target); err != nil {
+	//	return fmt.Errorf("unmarshal: %w", err)
+	//}
 
 	return nil
 }
