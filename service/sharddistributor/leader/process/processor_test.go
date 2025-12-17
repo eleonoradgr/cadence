@@ -39,24 +39,25 @@ func setupProcessorTest(t *testing.T, namespaceType string) *testDependencies {
 func setupProcessorTestWithMigrationConfig(t *testing.T, namespaceType string, dynamicConfig *config.Config) *testDependencies {
 	ctrl := gomock.NewController(t)
 	mockedClock := clock.NewMockedTimeSource()
+	params := ProcessorFactoryParams{
+		Logger:        testlogger.New(t),
+		MetricsClient: metrics.NewNoopMetricsClient(),
+		TimeSource:    mockedClock,
+		Cfg: config.ShardDistribution{
+			Process: config.LeaderProcess{
+				Period:       time.Second,
+				HeartbeatTTL: time.Second,
+			},
+		},
+		DynamicCfg: dynamicConfig,
+	}
 	return &testDependencies{
 		ctrl:       ctrl,
 		store:      store.NewMockStore(ctrl),
 		election:   store.NewMockElection(ctrl),
 		timeSource: mockedClock,
-		factory: NewProcessorFactory(
-			testlogger.New(t),
-			metrics.NewNoopMetricsClient(),
-			mockedClock,
-			config.ShardDistribution{
-				Process: config.LeaderProcess{
-					Period:       time.Second,
-					HeartbeatTTL: time.Second,
-				},
-			},
-			dynamicConfig,
-		),
-		cfg: config.Namespace{Name: "test-ns", ShardNum: 2, Type: namespaceType, Mode: config.MigrationModeONBOARDED},
+		factory:    NewProcessorFactory(params),
+		cfg:        config.Namespace{Name: "test-ns", ShardNum: 2, Type: namespaceType, Mode: config.MigrationModeONBOARDED},
 	}
 }
 

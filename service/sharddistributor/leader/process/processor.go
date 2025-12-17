@@ -73,30 +73,34 @@ type namespaceProcessor struct {
 	lastAppliedRevision int64
 }
 
+type ProcessorFactoryParams struct {
+	fx.In
+
+	Logger        log.Logger
+	MetricsClient metrics.Client
+	TimeSource    clock.TimeSource
+	Cfg           config.ShardDistribution
+	DynamicCfg    *config.Config
+}
+
 // NewProcessorFactory creates a new processor factory
-func NewProcessorFactory(
-	logger log.Logger,
-	metricsClient metrics.Client,
-	timeSource clock.TimeSource,
-	cfg config.ShardDistribution,
-	dynamicCfg *config.Config,
-) Factory {
-	if cfg.Process.Period == 0 {
-		cfg.Process.Period = _defaultPeriod
+func NewProcessorFactory(params ProcessorFactoryParams) Factory {
+	if params.Cfg.Process.Period == 0 {
+		params.Cfg.Process.Period = _defaultPeriod
 	}
-	if cfg.Process.HeartbeatTTL == 0 {
-		cfg.Process.HeartbeatTTL = _defaultHeartbeatTTL
+	if params.Cfg.Process.HeartbeatTTL == 0 {
+		params.Cfg.Process.HeartbeatTTL = _defaultHeartbeatTTL
 	}
-	if cfg.Process.Timeout == 0 {
-		cfg.Process.Timeout = _defaultTimeout
+	if params.Cfg.Process.Timeout == 0 {
+		params.Cfg.Process.Timeout = _defaultTimeout
 	}
 
 	return &processorFactory{
-		logger:        logger,
-		timeSource:    timeSource,
-		cfg:           cfg.Process,
-		dynamicCfg:    dynamicCfg,
-		metricsClient: metricsClient,
+		logger:        params.Logger,
+		timeSource:    params.TimeSource,
+		cfg:           params.Cfg.Process,
+		dynamicCfg:    params.DynamicCfg,
+		metricsClient: params.MetricsClient,
 	}
 }
 
