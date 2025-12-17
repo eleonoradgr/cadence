@@ -190,9 +190,9 @@ func (e *matchingEngineImpl) setupExecutor(shardDistributorExecutorClient execut
 	config := clientcommon.Config{
 		Namespaces: []clientcommon.NamespaceConfig{
 			// TTL for shard is aligned with the default value of the liveness time for a tasklist
-			{Namespace: "cadence-matching",
+			{Namespace: "cadence-matching-staging2",
 				HeartBeatInterval: 1 * time.Second,
-				MigrationMode:     sdconfig.MigrationModeLOCALPASSTHROUGH,
+				MigrationMode:     sdconfig.MigrationModeLOCALPASSTHROUGHSHADOW,
 				TTLShard:          5 * time.Minute,
 				TTLReport:         1 * time.Minute}}}
 
