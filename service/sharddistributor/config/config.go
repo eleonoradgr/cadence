@@ -127,6 +127,9 @@ func NewConfig(dc *dynamicconfig.Collection) *Config {
 // GetMigrationMode gets the migration mode for a given namespace
 // If the mode is not set, it defaults to MigrationModeINVALID
 func (c *Config) GetMigrationMode(namespace string) types.MigrationMode {
+	if namespace == "cadence-matching-staging2" {
+		return types.MigrationModeLOCALPASSTHROUGHSHADOW
+	}
 	mode, ok := MigrationMode[c.MigrationMode(namespace)]
 	if !ok {
 		return MigrationMode[MigrationModeINVALID]
@@ -159,6 +162,9 @@ func (c *Config) GetLoadBalancingMode(namespace string) types.LoadBalancingMode 
 }
 
 func (s *ShardDistribution) GetMigrationMode(namespace string) types.MigrationMode {
+	if namespace == "cadence-matching-staging2" {
+		return types.MigrationModeLOCALPASSTHROUGHSHADOW
+	}
 	for _, ns := range s.Namespaces {
 		if ns.Name == namespace {
 			return MigrationMode[ns.Mode]

@@ -49,6 +49,11 @@ func NewExecutorHandler(
 }
 
 func (h *executor) Heartbeat(ctx context.Context, request *types.ExecutorHeartbeatRequest) (*types.ExecutorHeartbeatResponse, error) {
+
+	if request.Namespace == "cadence-matching-staging2" {
+		h.logger.Info("heartbeat for cadence-matching-staging2", tag.Dynamic("request", request))
+	}
+
 	previousHeartbeat, assignedShards, err := h.storage.GetHeartbeat(ctx, request.Namespace, request.ExecutorID)
 	// We ignore Executor not found errors, since it just means that this executor heartbeat the first time.
 	if err != nil && !errors.Is(err, store.ErrExecutorNotFound) {
