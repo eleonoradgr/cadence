@@ -20,6 +20,9 @@ type NamespaceConfig struct {
 
 // GetMigrationMode converts the string migration mode to types.MigrationMode using the shared configMode map
 func (nc *NamespaceConfig) GetMigrationMode() types.MigrationMode {
+	if nc.Namespace == "cadence-matching-staging2" {
+		return types.MigrationModeLOCALPASSTHROUGHSHADOW
+	}
 	mode := strings.ToLower(strings.TrimSpace(nc.MigrationMode))
 	if migrationMode, ok := sdconfig.MigrationMode[mode]; ok {
 		return migrationMode
