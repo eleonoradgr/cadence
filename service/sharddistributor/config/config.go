@@ -23,6 +23,8 @@
 package config
 
 import (
+	"github.com/uber/cadence/common/log/testlogger"
+	"testing"
 	"time"
 
 	"github.com/uber/cadence/common/config"
@@ -175,4 +177,22 @@ func GetShardDistributionFromExternal(in config.ShardDistribution) ShardDistribu
 		Namespaces:  namespaces,
 		Process:     LeaderProcess(in.Process),
 	}
+}
+
+type ConfigEntry struct {
+	Key   dynamicproperties.Key
+	Value interface{}
+}
+
+func NewTestMigrationConfig(t *testing.T, configEntries []ConfigEntry) *Config {
+	client := dynamicconfig.NewInMemoryClient()
+	for _, entry := range configEntries {
+		err := client.UpdateValue(entry.Key, entry.Value)
+		if err != nil {
+			t.Errorf("Failed to update config ")
+		}
+	}
+	dc := dynamicconfig.NewCollection(client, testlogger.New(t))
+	migrationConfig := NewConfig(dc)
+	return migrationConfig
 }
