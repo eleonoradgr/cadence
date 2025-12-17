@@ -54,10 +54,10 @@ type registerHandlersParams struct {
 
 	ShardDistributionCfg config.ShardDistribution
 
-	Logger          log.Logger
-	MetricsClient   metrics.Client
-	RPCFactory      rpc.Factory
-	Config 			config.Config
+	Logger        log.Logger
+	MetricsClient metrics.Client
+	RPCFactory    rpc.Factory
+	Config        *config.Config
 
 	TimeSource clock.TimeSource
 	Store      store.Store

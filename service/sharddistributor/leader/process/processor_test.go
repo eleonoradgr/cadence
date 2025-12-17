@@ -32,11 +32,11 @@ type testDependencies struct {
 }
 
 func setupProcessorTest(t *testing.T, namespaceType string) *testDependencies {
-	migrationConfig := config.NewTestMigrationConfig(t, []config.ConfigEntry{{dynamicproperties.MigrationMode, config.MigrationModeONBOARDED}})
-	return setupProcessorTestWithMigrationConfig(t, namespaceType, migrationConfig)
+	dynamicConfig := config.NewTestMigrationConfig(t, []config.ConfigEntry{{dynamicproperties.ShardDistributorMigrationMode, config.MigrationModeONBOARDED}})
+	return setupProcessorTestWithMigrationConfig(t, namespaceType, dynamicConfig)
 }
 
-func setupProcessorTestWithMigrationConfig(t *testing.T, namespaceType string, migrationConfig config.MigrationConfig) *testDependencies {
+func setupProcessorTestWithMigrationConfig(t *testing.T, namespaceType string, dynamicConfig *config.Config) *testDependencies {
 	ctrl := gomock.NewController(t)
 	mockedClock := clock.NewMockedTimeSource()
 	return &testDependencies{
@@ -54,7 +54,7 @@ func setupProcessorTestWithMigrationConfig(t *testing.T, namespaceType string, m
 					HeartbeatTTL: time.Second,
 				},
 			},
-			migrationConfig,
+			dynamicConfig,
 		),
 		cfg: config.Namespace{Name: "test-ns", ShardNum: 2, Type: namespaceType, Mode: config.MigrationModeONBOARDED},
 	}
@@ -382,7 +382,7 @@ func TestRunLoop_ContextCancellation(t *testing.T) {
 }
 
 func TestRebalanceShards_WithUnassignedShardsButNigrationModeNotOnboarded(t *testing.T) {
-	migrationConfig := config.NewTestMigrationConfig(t, []config.ConfigEntry{{dynamicproperties.MigrationMode, config.MigrationModeDISTRIBUTEDPASSTHROUGH}})
+	migrationConfig := config.NewTestMigrationConfig(t, []config.ConfigEntry{{dynamicproperties.ShardDistributorMigrationMode, config.MigrationModeDISTRIBUTEDPASSTHROUGH}})
 	mocks := setupProcessorTestWithMigrationConfig(t, config.NamespaceTypeFixed, migrationConfig)
 	defer mocks.ctrl.Finish()
 	processor := mocks.factory.CreateProcessor(mocks.cfg, mocks.store, mocks.election).(*namespaceProcessor)

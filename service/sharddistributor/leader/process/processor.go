@@ -54,7 +54,7 @@ type processorFactory struct {
 	logger        log.Logger
 	timeSource    clock.TimeSource
 	cfg           config.LeaderProcess
-	migrationCfg  config.MigrationConfig
+	dynamicCfg    *config.Config
 	metricsClient metrics.Client
 }
 
@@ -66,7 +66,7 @@ type namespaceProcessor struct {
 	running             bool
 	cancel              context.CancelFunc
 	cfg                 config.LeaderProcess
-	migrationCfg        config.MigrationConfig
+	dynamicCfg          *config.Config
 	wg                  sync.WaitGroup
 	shardStore          store.Store
 	election            store.Election
@@ -79,7 +79,7 @@ func NewProcessorFactory(
 	metricsClient metrics.Client,
 	timeSource clock.TimeSource,
 	cfg config.ShardDistribution,
-	migrationCfg config.MigrationConfig,
+	dynamicCfg *config.Config,
 ) Factory {
 	if cfg.Process.Period == 0 {
 		cfg.Process.Period = _defaultPeriod
@@ -95,7 +95,7 @@ func NewProcessorFactory(
 		logger:        logger,
 		timeSource:    timeSource,
 		cfg:           cfg.Process,
-		migrationCfg:  migrationCfg,
+		dynamicCfg:    dynamicCfg,
 		metricsClient: metricsClient,
 	}
 }
@@ -107,7 +107,7 @@ func (f *processorFactory) CreateProcessor(cfg config.Namespace, shardStore stor
 		logger:        f.logger.WithTags(tag.ComponentLeaderProcessor, tag.ShardNamespace(cfg.Name)),
 		timeSource:    f.timeSource,
 		cfg:           f.cfg,
-		migrationCfg:  f.migrationCfg,
+		dynamicCfg:    f.dynamicCfg,
 		shardStore:    shardStore,
 		election:      election, // Store the election object
 		metricsClient: f.metricsClient,
@@ -386,7 +386,7 @@ func (p *namespaceProcessor) rebalanceShardsImpl(ctx context.Context, metricsLoo
 	}
 
 	newState := p.getNewAssignmentsState(namespaceState, currentAssignments)
-	if p.migrationCfg.GetMigrationMode(p.namespaceCfg.Name) != types.MigrationModeONBOARDED {
+	if p.dynamicCfg.GetMigrationMode(p.namespaceCfg.Name) != types.MigrationModeONBOARDED {
 		p.logger.Info("Running rebalancing in shadow mode", tag.Dynamic("old_assignments", namespaceState.ShardAssignments), tag.Dynamic("new_assignments", newState))
 		return nil
 	}
