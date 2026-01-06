@@ -37,12 +37,6 @@ type (
 	Config struct {
 		LoadBalancingMode dynamicproperties.StringPropertyFnWithNamespaceFilters
 		MigrationMode     dynamicproperties.StringPropertyFnWithNamespaceFilters
-
-		LoadBalancingNaive LoadBalancingNaiveConfig
-	}
-
-	LoadBalancingNaiveConfig struct {
-		MaxDeviation dynamicproperties.Float64PropertyFnWithNamespaceFilters
 	}
 
 	StaticConfig struct {
@@ -127,10 +121,6 @@ func NewConfig(dc *dynamicconfig.Collection) *Config {
 	return &Config{
 		LoadBalancingMode: dc.GetStringPropertyFilteredByNamespace(dynamicproperties.ShardDistributorLoadBalancingMode),
 		MigrationMode:     dc.GetStringPropertyFilteredByNamespace(dynamicproperties.ShardDistributorMigrationMode),
-
-		LoadBalancingNaive: LoadBalancingNaiveConfig{
-			MaxDeviation: dc.GetFloat64PropertyFilteredByNamespace(dynamicproperties.ShardDistributorLoadBalancingNaiveMaxDeviation),
-		},
 	}
 }
 

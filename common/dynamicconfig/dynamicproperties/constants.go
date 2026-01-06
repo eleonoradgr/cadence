@@ -2321,21 +2321,12 @@ const (
 	// Allowed filters: N/A
 	ShardDistributorErrorInjectionRate
 
-	// ShardDistributorExecutorErrorInjectionRate is rate for injecting random error in shard distributor executor client
+	// ShardDistributorErrorInjectionRate is rate for injecting random error in shard distributor executor client
 	// KeyName: sharddistributorexecutor.errorInjectionRate
 	// Value type: Float64
 	// Default value: 0
 	// Allowed filters: N/A
 	ShardDistributorExecutorErrorInjectionRate
-
-	// ShardDistributorLoadBalancingNaiveMaxDeviation is max deviation between the coldest and hottest executors
-	// in naive load balancing mode
-	//
-	// KeyName: shardDistributor.loadBalancingNaive.maxDeviation
-	// Value type: Float64
-	// Default value: 2.0
-	// Allowed filters: namespace
-	ShardDistributorLoadBalancingNaiveMaxDeviation
 
 	// LastFloatKey must be the last one in this const group
 	LastFloatKey
@@ -4934,13 +4925,6 @@ var FloatKeys = map[FloatKey]DynamicFloat{
 		KeyName:      "sharddistributorexecutor.errorInjectionRate",
 		Description:  "ShardDistributorExecutorInjectionRate is rate for injecting random error in shard distributor executor client",
 		DefaultValue: 0,
-	},
-
-	ShardDistributorLoadBalancingNaiveMaxDeviation: {
-		KeyName:      "shardDistributor.loadBalancingNaive.maxDeviation",
-		Description:  "ShardDistributorLoadBalancingNaiveMaxDeviation is max deviation between the coldest and hottest executors in naive load balancing mode",
-		DefaultValue: 2.0,
-		Filters:      []Filter{Namespace},
 	},
 }
 
