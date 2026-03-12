@@ -434,14 +434,26 @@ func (p *namespaceProcessor) rebalanceShardsImpl(ctx context.Context, metricsLoo
 	p.logger.Info("Active executors", tag.ShardExecutors(activeExecutors))
 
 	deletedShards := p.findDeletedShards(namespaceState)
+	if len(deletedShards) > 0 {
+		p.logger.Info("Identified deleted shards", tag.ShardExecutors(slices.Collect(maps.Keys(deletedShards))))
+	}
+	metricsLoopScope.UpdateGauge(metrics.ShardDistributorAssignLoopDeletedShards, float64(len(deletedShards)))
+
 	shardsToReassign, currentAssignments := p.findShardsToReassign(activeExecutors, namespaceState, deletedShards, staleExecutors)
+
+	// Count shards reclaimed from stale executors (shardsToReassign minus unassigned shards)
+	shardsFromStaleExecutors := p.countShardsFromStaleExecutors(namespaceState, staleExecutors)
+	if shardsFromStaleExecutors > 0 {
+		p.logger.Info("Identified shards to reclaim from stale executors", tag.Counter(shardsFromStaleExecutors))
+	}
+	metricsLoopScope.UpdateGauge(metrics.ShardDistributorAssignLoopShardsFromStaleExecutors, float64(shardsFromStaleExecutors))
 
 	metricsLoopScope.UpdateGauge(metrics.ShardDistributorAssignLoopNumRebalancedShards, float64(len(shardsToReassign)))
 
 	// If there are deleted shards or stale executors, the distribution has changed.
 	assignedToEmptyExecutors := assignShardsToEmptyExecutors(currentAssignments)
 	updatedAssignments := p.updateAssignments(shardsToReassign, activeExecutors, currentAssignments)
-	isRebalancedByShardLoad := p.rebalanceByShardLoad(calcShardLoad(namespaceState), currentAssignments)
+	isRebalancedByShardLoad := p.rebalanceByShardLoad(calcShardLoad(namespaceState), currentAssignments, metricsLoopScope)
 
 	distributionChanged := len(deletedShards) > 0 || len(staleExecutors) > 0 || assignedToEmptyExecutors || updatedAssignments || isRebalancedByShardLoad
 	if !distributionChanged {
@@ -599,7 +611,7 @@ func calcShardLoad(namespaceState *store.NamespaceState) map[string]float64 {
 
 // rebalanceByShardLoad does a rebalance if a difference between hottest and coldest executors' loads is more than maxDeviation
 // in this case the hottest shard will be moved to the coldest executor
-func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, currentAssignments map[string][]string) (distributedChanged bool) {
+func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, currentAssignments map[string][]string, metricsScope metrics.Scope) (distributedChanged bool) {
 	// no rebalance if there are no more than 1 executor
 	if len(currentAssignments) < 2 {
 		return false
@@ -653,6 +665,15 @@ func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, 
 		return false
 	}
 
+	p.logger.Info("Load-based shard move",
+		tag.ShardKey(hottestShardID),
+		tag.ShardExecutor(hottestExecutorID),
+		tag.Dynamic("destination_executor", coldestExecutorID),
+		tag.ShardLoad(fmt.Sprintf("%f", hottestShardLoad)),
+	)
+	metricsScope.AddCounter(metrics.ShardDistributorAssignLoopLoadBasedMoves, 1)
+	metricsScope.UpdateGauge(metrics.ShardDistributorAssignLoopMovedShardLoad, hottestShardLoad)
+
 	// remove the hottest Shard from the hottest executor
 	// put it to the coldest executor
 	for i, shardID := range currentAssignments[hottestExecutorID] {
@@ -663,6 +684,17 @@ func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, 
 	currentAssignments[coldestExecutorID] = append(currentAssignments[coldestExecutorID], hottestShardID)
 
 	return true
+}
+
+// countShardsFromStaleExecutors returns the number of shards assigned to stale executors that will need to be reassigned.
+func (p *namespaceProcessor) countShardsFromStaleExecutors(namespaceState *store.NamespaceState, staleExecutors map[string]int64) int {
+	count := 0
+	for executorID := range staleExecutors {
+		if state, ok := namespaceState.ShardAssignments[executorID]; ok {
+			count += len(state.AssignedShards)
+		}
+	}
+	return count
 }
 
 func (p *namespaceProcessor) getNewAssignmentsState(namespaceState *store.NamespaceState, currentAssignments map[string][]string) map[string]store.AssignedState {
