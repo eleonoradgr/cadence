@@ -190,6 +190,21 @@ func (e *matchingEngineImpl) Stop() {
 }
 
 func (e *matchingEngineImpl) setupExecutor(shardDistributorExecutorClient executorclient.Client) {
+	// If no shard-distributor namespaces are configured, use a no-op executor so that
+	// the matching service falls back to local hash-ring assignment entirely.
+	if len(e.ShardDistributorMatchingConfig.Namespaces) == 0 {
+		e.logger.Info("No shard-distributor-matching namespaces configured, using no-op executor")
+		e.executor = executorclient.NewNoopExecutor[tasklist.ShardProcessor]()
+
+		taskListFactory := &tasklist.ShardProcessorFactory{
+			TaskListsRegistry: e.taskListRegistry,
+			ReportTTL:         _defaultSDReportTTL,
+			TimeSource:        e.timeSource,
+		}
+		e.taskListsFactory = taskListFactory
+		return
+	}
+
 	cfg, reportTTL := e.getValidatedShardDistributorConfig()
 
 	taskListFactory := &tasklist.ShardProcessorFactory{
