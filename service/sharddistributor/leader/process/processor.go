@@ -670,6 +670,11 @@ func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, 
 		tag.ShardExecutor(hottestExecutorID),
 		tag.Dynamic("destination_executor", coldestExecutorID),
 		tag.ShardLoad(fmt.Sprintf("%f", hottestShardLoad)),
+		tag.Dynamic("hottest_executor_load", hottestExecutorLoad),
+		tag.Dynamic("coldest_executor_load", coldestExecutorLoad),
+		tag.Dynamic("load_ratio", hottestExecutorLoad/coldestExecutorLoad),
+		tag.Dynamic("hottest_executor_shard_count", len(currentAssignments[hottestExecutorID])),
+		tag.Dynamic("coldest_executor_shard_count", len(currentAssignments[coldestExecutorID])),
 	)
 	metricsScope.AddCounter(metrics.ShardDistributorAssignLoopLoadBasedMoves, 1)
 	metricsScope.UpdateGauge(metrics.ShardDistributorAssignLoopMovedShardLoad, hottestShardLoad)
