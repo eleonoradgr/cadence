@@ -441,19 +441,13 @@ func (p *namespaceProcessor) rebalanceShardsImpl(ctx context.Context, metricsLoo
 
 	shardsToReassign, currentAssignments := p.findShardsToReassign(activeExecutors, namespaceState, deletedShards, staleExecutors)
 
-	// Count shards reclaimed from stale executors (shardsToReassign minus unassigned shards)
-	shardsFromStaleExecutors := p.countShardsFromStaleExecutors(namespaceState, staleExecutors)
-	if shardsFromStaleExecutors > 0 {
-		p.logger.Info("Identified shards to reclaim from stale executors", tag.Counter(shardsFromStaleExecutors))
-	}
-	metricsLoopScope.UpdateGauge(metrics.ShardDistributorAssignLoopShardsFromStaleExecutors, float64(shardsFromStaleExecutors))
-
 	metricsLoopScope.UpdateGauge(metrics.ShardDistributorAssignLoopNumRebalancedShards, float64(len(shardsToReassign)))
 
 	// If there are deleted shards or stale executors, the distribution has changed.
 	assignedToEmptyExecutors := assignShardsToEmptyExecutors(currentAssignments)
 	updatedAssignments := p.updateAssignments(shardsToReassign, activeExecutors, currentAssignments)
 	isRebalancedByShardLoad := p.rebalanceByShardLoad(calcShardLoad(namespaceState), currentAssignments, metricsLoopScope)
+	p.emitExecutorMetric(namespaceState, metricsLoopScope)
 
 	distributionChanged := len(deletedShards) > 0 || len(staleExecutors) > 0 || assignedToEmptyExecutors || updatedAssignments || isRebalancedByShardLoad
 	if !distributionChanged {
@@ -463,7 +457,6 @@ func (p *namespaceProcessor) rebalanceShardsImpl(ctx context.Context, metricsLoo
 
 	newState := p.getNewAssignmentsState(namespaceState, currentAssignments)
 
-	p.emitExecutorMetric(namespaceState, metricsLoopScope)
 	p.emitOldestExecutorHeartbeatLag(namespaceState, metricsLoopScope)
 
 	if p.sdConfig.GetMigrationMode(p.namespaceCfg.Name) != types.MigrationModeONBOARDED {
@@ -689,17 +682,6 @@ func (p *namespaceProcessor) rebalanceByShardLoad(shardLoad map[string]float64, 
 	currentAssignments[coldestExecutorID] = append(currentAssignments[coldestExecutorID], hottestShardID)
 
 	return true
-}
-
-// countShardsFromStaleExecutors returns the number of shards assigned to stale executors that will need to be reassigned.
-func (p *namespaceProcessor) countShardsFromStaleExecutors(namespaceState *store.NamespaceState, staleExecutors map[string]int64) int {
-	count := 0
-	for executorID := range staleExecutors {
-		if state, ok := namespaceState.ShardAssignments[executorID]; ok {
-			count += len(state.AssignedShards)
-		}
-	}
-	return count
 }
 
 func (p *namespaceProcessor) getNewAssignmentsState(namespaceState *store.NamespaceState, currentAssignments map[string][]string) map[string]store.AssignedState {
