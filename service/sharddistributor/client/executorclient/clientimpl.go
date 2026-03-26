@@ -44,8 +44,7 @@ const (
 )
 
 // processorAsyncOperationTimeout is the maximum time allowed for a shard processor
-// Start or Stop call. Declared as a var so tests can override it without waiting
-// the full 2 minutes.
+// Start or Stop call.
 var processorAsyncOperationTimeout = 2 * time.Minute
 
 type managedProcessor[SP ShardProcessor] struct {
@@ -458,23 +457,19 @@ func (e *executorImpl[SP]) deleteShards(shardIDs []string) {
 }
 
 func (e *executorImpl[SP]) stopShardProcessors() {
-	// Synchronous: block until all Stop() calls finish (or the shared timeout fires)
-	// before sending the draining heartbeat.
+	// Synchronous: block until all Stop() calls finish
 	var stopWg sync.WaitGroup
 	e.managedProcessors.Range(func(shardID string, _ *managedProcessor[SP]) bool {
 		e.stopManagerProcessor(shardID, &stopWg)
 		return true
 	})
-	e.waitForWgWithTimeout(&stopWg,
-		metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
-		"shard processor stop batch timed out on shutdown")
+	stopWg.Wait()
 }
 
 // addManagerProcessor creates a new shard processor, stores it in the map
 // synchronously (state: starting), then fires 1 goroutine to call Start().
-// It increments wg before launching and the goroutine calls wg.Done() on exit,
-// so the caller's shared timeout goroutine can track the whole batch via wg.
-// No-ops (returns without touching wg) if the shard is already tracked.
+// It increments wg before launching and the goroutine calls wg.Done() on exit.
+// No-ops if the shard is already tracked.
 func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID string, wg *sync.WaitGroup) {
 	if existing, ok := e.managedProcessors.Load(shardID); ok {
 		// The processor already exists. If it is stopping (Stop goroutine still
@@ -502,7 +497,6 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 		defer wg.Done()
 		if err := processor.Start(context.WithoutCancel(ctx)); err != nil {
 			e.logger.Error("shard processor start failed", tag.Dynamic("shard-id", shardID), tag.Error(err))
-			managedProcessor.setState(processorStateStopping)
 			return
 		}
 		managedProcessor.setState(processorStateStarted)
@@ -510,10 +504,8 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 }
 
 // stopManagerProcessor transitions the processor to stopping, removes it from the
-// map synchronously, then fires 1 goroutine to call Stop(). It increments wg before
-// launching and the goroutine calls wg.Done() on exit so the caller's shared timeout
-// goroutine can track the whole batch via wg.
-// No-ops (returns without touching wg) if the processor is not found or already stopping.
+// map synchronously, then fires 1 goroutine to call Stop().
+// No-ops if the processor is not found or already stopping.
 func (e *executorImpl[SP]) stopManagerProcessor(shardID string, wg *sync.WaitGroup) {
 	managedProcessor, ok := e.managedProcessors.Load(shardID)
 	if !ok || managedProcessor.getState() == processorStateStopping {
