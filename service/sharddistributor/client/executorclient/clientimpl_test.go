@@ -122,11 +122,11 @@ func TestHeartBeatLoop(t *testing.T) {
 
 	// The two shards are assigned to the executor, so we expect them to be created, started and stopped
 	mockShardProcessor1 := NewMockShardProcessor(ctrl)
-	mockShardProcessor1.EXPECT().Start(gomock.Any())
+	mockShardProcessor1.EXPECT().Start(gomock.Any()).Return(nil)
 	mockShardProcessor1.EXPECT().Stop()
 
 	mockShardProcessor2 := NewMockShardProcessor(ctrl)
-	mockShardProcessor2.EXPECT().Start(gomock.Any())
+	mockShardProcessor2.EXPECT().Start(gomock.Any()).Return(nil)
 	mockShardProcessor2.EXPECT().Stop()
 
 	mockShardProcessorFactory := NewMockShardProcessorFactory[*MockShardProcessor](ctrl)
@@ -235,7 +235,7 @@ func TestHeartBeatLoop_ShardAssignmentChange(t *testing.T) {
 
 	// With the new assignment, shardProcessorMock1 should be stopped and shardProcessorMock3 should be started
 	shardProcessorMock1.EXPECT().Stop()
-	shardProcessorMock3.EXPECT().Start(gomock.Any())
+	shardProcessorMock3.EXPECT().Start(gomock.Any()).Return(nil)
 
 	// Update the shard assignment
 	executor.updateShardAssignment(context.Background(), newAssignment)
@@ -318,7 +318,7 @@ func TestAssignShardsFromLocalLogic(t *testing.T) {
 				executor.managedProcessors.Store("test-shard-id2", newManagedProcessor(shardProcessorMock2, processorStateStarted))
 
 				// With the new assignment, shardProcessorMock3 should be started
-				shardProcessorMock3.EXPECT().Start(gomock.Any())
+				shardProcessorMock3.EXPECT().Start(gomock.Any()).Return(nil)
 				shardProcessorMock1.EXPECT().GetShardReport().Return(ShardReport{Status: types.ShardStatusREADY})
 				shardProcessorMock2.EXPECT().GetShardReport().Return(ShardReport{Status: types.ShardStatusREADY})
 				shardProcessorMock3.EXPECT().GetShardReport().Return(ShardReport{Status: types.ShardStatusREADY})
@@ -740,7 +740,7 @@ func TestGetShardProcess_NonOwnedShard_Fails(t *testing.T) {
 			heartbeatCallsExpected: 1,
 			setupMocks: func(processorFactory *MockShardProcessorFactory[*MockShardProcessor], processor *MockShardProcessor) {
 				processorFactory.EXPECT().NewShardProcessor(gomock.Any()).Return(processor, nil)
-				processor.EXPECT().Start(gomock.Any())
+				processor.EXPECT().Start(gomock.Any()).Return(nil)
 			},
 		},
 		"shard not found on heartbeat": {
@@ -783,6 +783,8 @@ func TestGetShardProcess_NonOwnedShard_Fails(t *testing.T) {
 			}
 
 			_, err := executor.GetShardProcess(context.Background(), "test-shard-id1")
+			// Allow async Start goroutine to run before mock controller verifies calls
+			time.Sleep(10 * time.Millisecond)
 			if tc.expectedError != nil {
 				assert.ErrorContains(t, err, tc.expectedError.Error())
 			} else {
@@ -790,6 +792,141 @@ func TestGetShardProcess_NonOwnedShard_Fails(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAddManagerProcessor_SkipsWhenStopping(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	// A processor that is already in the stopping state.
+	existingProcessor := NewMockShardProcessor(ctrl)
+	// No Start or Stop calls expected — the add must be a no-op.
+
+	factory := NewMockShardProcessorFactory[*MockShardProcessor](ctrl)
+	// NewShardProcessor must never be called because the entry already exists.
+	factory.EXPECT().NewShardProcessor(gomock.Any()).Times(0)
+
+	executor := newTestExecutor(nil, factory, nil)
+	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(existingProcessor, processorStateStopping))
+
+	// Should return without creating a new processor.
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
+
+	// The map entry must still be the original stopping processor, not a new one.
+	mp, ok := executor.managedProcessors.Load("test-shard-id1")
+	assert.True(t, ok)
+	assert.Equal(t, processorStateStopping, mp.getState())
+	assert.Equal(t, existingProcessor, mp.processor)
+}
+
+func TestAddManagerProcessor_SkipsWhenStarting(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	// A processor that is already in the starting state (Start goroutine still running).
+	existingProcessor := NewMockShardProcessor(ctrl)
+	// No additional Start call expected.
+
+	factory := NewMockShardProcessorFactory[*MockShardProcessor](ctrl)
+	factory.EXPECT().NewShardProcessor(gomock.Any()).Times(0)
+
+	executor := newTestExecutor(nil, factory, nil)
+	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(existingProcessor, processorStateStarting))
+
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
+
+	mp, ok := executor.managedProcessors.Load("test-shard-id1")
+	assert.True(t, ok)
+	assert.Equal(t, processorStateStarting, mp.getState())
+	assert.Equal(t, existingProcessor, mp.processor)
+}
+
+func TestAddManagerProcessor_StartTimeout(t *testing.T) {
+	// Shorten the timeout so the test does not take 2 minutes.
+	origTimeout := processorAsyncOperationTimeout
+	processorAsyncOperationTimeout = 50 * time.Millisecond
+	defer func() { processorAsyncOperationTimeout = origTimeout }()
+
+	ctrl := gomock.NewController(t)
+
+	// blockCh keeps Start blocked until we explicitly release it (or the timeout fires).
+	blockCh := make(chan struct{})
+
+	processor := NewMockShardProcessor(ctrl)
+	processor.EXPECT().Start(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+		<-blockCh // block until the test releases or context is cancelled
+		return ctx.Err()
+	})
+
+	factory := NewMockShardProcessorFactory[*MockShardProcessor](ctrl)
+	factory.EXPECT().NewShardProcessor(gomock.Any()).Return(processor, nil)
+
+	testScope := tally.NewTestScope("test", nil)
+	executor := newTestExecutor(nil, factory, nil)
+	executor.metrics = testScope
+
+	// Call addManagerProcessor — it stores the processor and fires Start asynchronously.
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
+
+	// Wait for the timeout to fire (50 ms + some headroom).
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the start-timeout metric was emitted.
+	snapshot := testScope.Snapshot()
+	assert.Equal(t, int64(1), snapshot.Counters()["test.shard_distributor_executor_processor_start_timeout+"].Value())
+
+	// Verify the processor is now in stopping state.
+	mp, ok := executor.managedProcessors.Load("test-shard-id1")
+	assert.True(t, ok)
+	assert.Equal(t, processorStateStopping, mp.getState())
+
+	// Unblock the goroutine that is blocked in Start so it can finish and not leak.
+	close(blockCh)
+	// Give the inner goroutine a moment to exit.
+	time.Sleep(10 * time.Millisecond)
+}
+
+func TestStopManagerProcessor_StopTimeout(t *testing.T) {
+	// Shorten the timeout so the test does not take 2 minutes.
+	origTimeout := processorAsyncOperationTimeout
+	processorAsyncOperationTimeout = 50 * time.Millisecond
+	defer func() { processorAsyncOperationTimeout = origTimeout }()
+
+	ctrl := gomock.NewController(t)
+
+	// blockCh keeps Stop blocked until we explicitly release it (or the timeout fires).
+	blockCh := make(chan struct{})
+
+	processor := NewMockShardProcessor(ctrl)
+	processor.EXPECT().Stop().Do(func() {
+		<-blockCh // block until the test releases or the timeout fires
+	})
+
+	testScope := tally.NewTestScope("test", nil)
+	executor := newTestExecutor(nil, nil, nil)
+	executor.metrics = testScope
+	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(processor, processorStateStarted))
+
+	// stopManagerProcessor sets state to stopping and fires Stop asynchronously.
+	doneCh := executor.stopManagerProcessor("test-shard-id1")
+	assert.NotNil(t, doneCh)
+
+	// Wait for the done channel — it closes once the goroutine finishes (after timeout).
+	select {
+	case <-doneCh:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("stopManagerProcessor goroutine did not finish within expected time")
+	}
+
+	// Verify the stop-timeout metric was emitted.
+	snapshot := testScope.Snapshot()
+	assert.Equal(t, int64(1), snapshot.Counters()["test.shard_distributor_executor_processor_stop_timeout+"].Value())
+
+	// The processor must have been removed from the map even after a timeout.
+	_, ok := executor.managedProcessors.Load("test-shard-id1")
+	assert.False(t, ok)
+
+	// Unblock the goroutine that is still stuck in Stop so it can exit.
+	close(blockCh)
+	time.Sleep(10 * time.Millisecond)
 }
 
 func TestExecutorMetadata_SetAndGet(t *testing.T) {
@@ -1080,6 +1217,8 @@ func TestShardCleanupLoop(t *testing.T) {
 				// Stop the loop before waiting for next timer
 				cancel()
 				wg.Wait()
+				// Wait for async stop goroutines (fired by stopManagerProcessor) to complete
+				time.Sleep(10 * time.Millisecond)
 			}
 
 			// Verify expected shards are deleted
