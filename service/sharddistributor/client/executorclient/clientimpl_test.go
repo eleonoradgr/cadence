@@ -842,11 +842,6 @@ func TestAddManagerProcessor_SkipsWhenStarting(t *testing.T) {
 }
 
 func TestAddManagerProcessor_StartTimeout(t *testing.T) {
-	// Shorten the timeout so the test does not take 2 minutes.
-	origTimeout := processorAsyncOperationTimeout
-	processorAsyncOperationTimeout = 50 * time.Millisecond
-	defer func() { processorAsyncOperationTimeout = origTimeout }()
-
 	ctrl := gomock.NewController(t)
 
 	// blockCh keeps Start blocked so the batch-watcher goroutine times out.
@@ -862,7 +857,8 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 	factory.EXPECT().NewShardProcessor(gomock.Any()).Return(processor, nil)
 
 	testScope := tally.NewTestScope("test", nil)
-	executor := newTestExecutor(nil, factory, nil)
+	mockTimeSource := clock.NewMockedTimeSource()
+	executor := newTestExecutor(nil, factory, mockTimeSource)
 	executor.metrics = testScope
 
 	// addManagerProcessor stores the processor and fires the Start goroutine.
@@ -870,9 +866,20 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 	// metric after processorAsyncOperationTimeout elapses.
 	var wg sync.WaitGroup
 	executor.addManagerProcessor(context.Background(), "test-shard-id1", &wg)
-	executor.waitForWgWithTimeout(&wg,
-		metricsconstants.ShardDistributorExecutorProcessorStartTimeout,
-		"start batch timed out")
+
+	// Run the batch watcher in a goroutine — it blocks on the mocked timer.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		executor.waitForWgWithTimeout(&wg,
+			metricsconstants.ShardDistributorExecutorProcessorStartTimeout,
+			"start batch timed out")
+	}()
+
+	// Advance mock time past the timeout to trigger the batch watcher.
+	mockTimeSource.BlockUntil(1)
+	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
+	<-done
 
 	// Timeout metric must have been emitted by the batch watcher.
 	snapshot := testScope.Snapshot()
@@ -888,14 +895,9 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 }
 
 func TestStopManagerProcessor_StopTimeout(t *testing.T) {
-	// Shorten the timeout so the test does not take 2 minutes.
-	origTimeout := processorAsyncOperationTimeout
-	processorAsyncOperationTimeout = 50 * time.Millisecond
-	defer func() { processorAsyncOperationTimeout = origTimeout }()
-
 	ctrl := gomock.NewController(t)
 
-	// blockCh keeps Stop blocked until we explicitly release it.
+	// blockCh keeps Stop blocked so the batch-watcher goroutine times out.
 	blockCh := make(chan struct{})
 
 	processor := NewMockShardProcessor(ctrl)
@@ -904,7 +906,8 @@ func TestStopManagerProcessor_StopTimeout(t *testing.T) {
 	})
 
 	testScope := tally.NewTestScope("test", nil)
-	executor := newTestExecutor(nil, nil, nil)
+	mockTimeSource := clock.NewMockedTimeSource()
+	executor := newTestExecutor(nil, nil, mockTimeSource)
 	executor.metrics = testScope
 	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(processor, processorStateStarted))
 
@@ -912,9 +915,20 @@ func TestStopManagerProcessor_StopTimeout(t *testing.T) {
 	// waitForWgWithTimeout drives the shared timeout.
 	var wg sync.WaitGroup
 	executor.stopManagerProcessor("test-shard-id1", &wg)
-	executor.waitForWgWithTimeout(&wg,
-		metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
-		"stop batch timed out")
+
+	// Run the batch watcher in a goroutine — it blocks on the mocked timer.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		executor.waitForWgWithTimeout(&wg,
+			metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
+			"stop batch timed out")
+	}()
+
+	// Advance mock time past the timeout to trigger the batch watcher.
+	mockTimeSource.BlockUntil(1)
+	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
+	<-done
 
 	// Timeout metric must have fired.
 	snapshot := testScope.Snapshot()

@@ -39,13 +39,10 @@ const (
 )
 
 const (
-	heartbeatJitterCoeff     = 0.1 // 10% jitter
-	drainingHeartbeatTimeout = 5 * time.Second
+	heartbeatJitterCoeff           = 0.1 // 10% jitter
+	drainingHeartbeatTimeout       = 5 * time.Second
+	processorAsyncOperationTimeout = 2 * time.Minute //  maximum time allowed for a shard processor Start or Stop call.
 )
-
-// processorAsyncOperationTimeout is the maximum time allowed for a shard processor
-// Start or Stop call.
-var processorAsyncOperationTimeout = 2 * time.Minute
 
 type managedProcessor[SP ShardProcessor] struct {
 	processor SP
@@ -497,6 +494,8 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 		defer wg.Done()
 		if err := processor.Start(context.WithoutCancel(ctx)); err != nil {
 			e.logger.Error("shard processor start failed", tag.Dynamic("shard-id", shardID), tag.Error(err))
+			// Remove the failed processor so the next heartbeat can retry.
+			e.managedProcessors.Delete(shardID)
 			return
 		}
 		managedProcessor.setState(processorStateStarted)
@@ -528,8 +527,8 @@ func (e *executorImpl[SP]) stopManagerProcessor(shardID string, wg *sync.WaitGro
 // elapses. On timeout it logs and emits the provided metric. Uses 1 inner goroutine to
 // bridge wg.Wait() into a select with time.After.
 func (e *executorImpl[SP]) waitForWgWithTimeout(wg *sync.WaitGroup, timeoutMetric string, logMsg string) {
-	// Snapshot at call time to avoid a data race when tests modify the package-level var.
-	timeout := processorAsyncOperationTimeout
+	timer := e.timeSource.NewTimer(processorAsyncOperationTimeout)
+	defer timer.Stop()
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -537,7 +536,7 @@ func (e *executorImpl[SP]) waitForWgWithTimeout(wg *sync.WaitGroup, timeoutMetri
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-timer.Chan():
 		e.logger.Error(logMsg)
 		e.metrics.Counter(timeoutMetric).Inc(1)
 	}
