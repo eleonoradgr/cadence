@@ -405,69 +405,57 @@ func (e *executorImpl[SP]) sendDrainingHeartbeat() {
 }
 
 func (e *executorImpl[SP]) updateShardAssignment(ctx context.Context, shardAssignments map[string]*types.ShardAssignment) {
-	// Stop shards no longer assigned. Each call fires 1 goroutine; the shared wg
-	// tracks them all and a single timeout goroutine watches the whole batch.
-	var stopWg sync.WaitGroup
+	// Stop shards no longer assigned. Each call fires 2 goroutines: one for the
+	// Stop() call and one per-shard timeout watcher.
 	e.managedProcessors.Range(func(shardID string, managedProcessor *managedProcessor[SP]) bool {
 		if assignment, ok := shardAssignments[shardID]; !ok || assignment.Status != types.AssignmentStatusREADY {
-			e.stopManagerProcessor(shardID, &stopWg)
+			e.stopManagerProcessor(shardID)
 		}
 		return true
 	})
-	go e.waitForWgWithTimeout(&stopWg,
-		metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
-		"shard processor stop batch timed out")
 
-	// Start newly assigned shards. Same pattern: 1 goroutine per shard, 1 shared
-	// timeout goroutine for the whole start batch.
-	var startWg sync.WaitGroup
+	// Start newly assigned shards. Each call fires 2 goroutines: one for the
+	// Start() call and one per-shard timeout watcher.
 	for shardID, assignment := range shardAssignments {
 		if assignment.Status == types.AssignmentStatusREADY {
-			e.addManagerProcessor(ctx, shardID, &startWg)
+			e.addManagerProcessor(ctx, shardID)
 		}
 	}
-	go e.waitForWgWithTimeout(&startWg,
-		metricsconstants.ShardDistributorExecutorProcessorStartTimeout,
-		"shard processor start batch timed out")
 }
 
 func (e *executorImpl[SP]) addNewShards(ctx context.Context, shardAssignments map[string]*types.ShardAssignment) {
-	var startWg sync.WaitGroup
 	for shardID, assignment := range shardAssignments {
 		if assignment.Status == types.AssignmentStatusREADY {
-			e.addManagerProcessor(ctx, shardID, &startWg)
+			e.addManagerProcessor(ctx, shardID)
 		}
 	}
-	go e.waitForWgWithTimeout(&startWg,
-		metricsconstants.ShardDistributorExecutorProcessorStartTimeout,
-		"shard processor start batch timed out")
 }
 
 func (e *executorImpl[SP]) deleteShards(shardIDs []string) {
-	var stopWg sync.WaitGroup
 	for _, shardID := range shardIDs {
-		e.stopManagerProcessor(shardID, &stopWg)
+		e.stopManagerProcessor(shardID)
 	}
-	go e.waitForWgWithTimeout(&stopWg,
-		metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
-		"shard processor stop batch timed out")
 }
 
 func (e *executorImpl[SP]) stopShardProcessors() {
-	// Synchronous: block until all Stop() calls finish
-	var stopWg sync.WaitGroup
+	// Synchronous: collect each per-shard done channel and block until all
+	// Stop() calls finish.
+	var doneChans []<-chan struct{}
 	e.managedProcessors.Range(func(shardID string, _ *managedProcessor[SP]) bool {
-		e.stopManagerProcessor(shardID, &stopWg)
+		if ch := e.stopManagerProcessor(shardID); ch != nil {
+			doneChans = append(doneChans, ch)
+		}
 		return true
 	})
-	stopWg.Wait()
+	for _, ch := range doneChans {
+		<-ch
+	}
 }
 
 // addManagerProcessor creates a new shard processor, stores it in the map
-// synchronously (state: starting), then fires 1 goroutine to call Start().
-// It increments wg before launching and the goroutine calls wg.Done() on exit.
-// No-ops if the shard is already tracked.
-func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID string, wg *sync.WaitGroup) {
+// synchronously (state: starting), then fires 2 goroutines: one to call Start()
+// and one per-shard timeout watcher. No-ops if the shard is already tracked.
+func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID string) {
 	if existing, ok := e.managedProcessors.Load(shardID); ok {
 		// The processor already exists. If it is stopping (Stop goroutine still
 		// running) we log and skip — the next heartbeat will re-send the shard as
@@ -489,9 +477,9 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 	managedProcessor := newManagedProcessor(processor, processorStateStarting)
 	e.managedProcessors.Store(shardID, managedProcessor)
 
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		if err := processor.Start(context.WithoutCancel(ctx)); err != nil {
 			e.logger.Error("shard processor start failed", tag.Dynamic("shard-id", shardID), tag.Error(err))
 			// Remove the failed processor so the next heartbeat can retry.
@@ -500,15 +488,27 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 		}
 		managedProcessor.setState(processorStateStarted)
 	}()
+	go func() {
+		timer := e.timeSource.NewTimer(processorAsyncOperationTimeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.Chan():
+			e.logger.Error("shard processor start timed out", tag.Dynamic("shard-id", shardID))
+			e.metrics.Counter(metricsconstants.ShardDistributorExecutorProcessorStartTimeout).Inc(1)
+		}
+	}()
 }
 
 // stopManagerProcessor transitions the processor to stopping, removes it from the
-// map synchronously, then fires 1 goroutine to call Stop().
-// No-ops if the processor is not found or already stopping.
-func (e *executorImpl[SP]) stopManagerProcessor(shardID string, wg *sync.WaitGroup) {
+// map synchronously, then fires 2 goroutines: one to call Stop() and one per-shard
+// timeout watcher. Returns a done channel that closes when Stop() returns so callers
+// that need to block (e.g. stopShardProcessors) can wait on it.
+// No-ops if the processor is not found or already stopping; returns nil in that case.
+func (e *executorImpl[SP]) stopManagerProcessor(shardID string) <-chan struct{} {
 	managedProcessor, ok := e.managedProcessors.Load(shardID)
 	if !ok || managedProcessor.getState() == processorStateStopping {
-		return
+		return nil
 	}
 	e.metrics.Counter(metricsconstants.ShardDistributorExecutorShardsStopped).Inc(1)
 	managedProcessor.setState(processorStateStopping)
@@ -516,31 +516,24 @@ func (e *executorImpl[SP]) stopManagerProcessor(shardID string, wg *sync.WaitGro
 	// and can re-add the shard if the server re-assigns it.
 	e.managedProcessors.Delete(shardID)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		managedProcessor.processor.Stop()
-	}()
-}
-
-// waitForWgWithTimeout waits for wg to reach zero, or until processorAsyncOperationTimeout
-// elapses. On timeout it logs and emits the provided metric. Uses 1 inner goroutine to
-// bridge wg.Wait() into a select with time.After.
-func (e *executorImpl[SP]) waitForWgWithTimeout(wg *sync.WaitGroup, timeoutMetric string, logMsg string) {
-	timer := e.timeSource.NewTimer(processorAsyncOperationTimeout)
-	defer timer.Stop()
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(done)
+		defer close(done)
+		managedProcessor.processor.Stop()
 	}()
-	select {
-	case <-done:
-	case <-timer.Chan():
-		e.logger.Error(logMsg)
-		e.metrics.Counter(timeoutMetric).Inc(1)
-	}
+	go func() {
+		timer := e.timeSource.NewTimer(processorAsyncOperationTimeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.Chan():
+			e.logger.Error("shard processor stop timed out", tag.Dynamic("shard-id", shardID))
+			e.metrics.Counter(metricsconstants.ShardDistributorExecutorProcessorStopTimeout).Inc(1)
+		}
+	}()
+	return done
 }
+
 
 func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 	// We don't run the loop for invalid durations

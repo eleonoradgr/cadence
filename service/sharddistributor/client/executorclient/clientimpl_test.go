@@ -17,7 +17,6 @@ import (
 	"github.com/uber/cadence/common/clock"
 	"github.com/uber/cadence/common/log"
 	"github.com/uber/cadence/common/types"
-	"github.com/uber/cadence/service/sharddistributor/client/executorclient/metricsconstants"
 	"github.com/uber/cadence/service/sharddistributor/client/executorclient/syncgeneric"
 )
 
@@ -807,10 +806,7 @@ func TestAddManagerProcessor_SkipsWhenStopping(t *testing.T) {
 	executor := newTestExecutor(nil, factory, nil)
 	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(existingProcessor, processorStateStopping))
 
-	var wg sync.WaitGroup
-	executor.addManagerProcessor(context.Background(), "test-shard-id1", &wg)
-	// wg counter must remain zero — nothing was launched.
-	wg.Wait()
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
 
 	// The map entry must still be the original stopping processor, not a new one.
 	mp, ok := executor.managedProcessors.Load("test-shard-id1")
@@ -831,9 +827,7 @@ func TestAddManagerProcessor_SkipsWhenStarting(t *testing.T) {
 	executor := newTestExecutor(nil, factory, nil)
 	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(existingProcessor, processorStateStarting))
 
-	var wg sync.WaitGroup
-	executor.addManagerProcessor(context.Background(), "test-shard-id1", &wg)
-	wg.Wait()
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
 
 	mp, ok := executor.managedProcessors.Load("test-shard-id1")
 	assert.True(t, ok)
@@ -844,7 +838,7 @@ func TestAddManagerProcessor_SkipsWhenStarting(t *testing.T) {
 func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	// blockCh keeps Start blocked so the batch-watcher goroutine times out.
+	// blockCh keeps Start blocked so the per-shard timeout watcher fires first.
 	blockCh := make(chan struct{})
 
 	processor := NewMockShardProcessor(ctrl)
@@ -861,31 +855,22 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 	executor := newTestExecutor(nil, factory, mockTimeSource)
 	executor.metrics = testScope
 
-	// addManagerProcessor stores the processor and fires the Start goroutine.
-	// waitForWgWithTimeout is the single batch-watcher: it fires the timeout
-	// metric after processorAsyncOperationTimeout elapses.
-	var wg sync.WaitGroup
-	executor.addManagerProcessor(context.Background(), "test-shard-id1", &wg)
+	// addManagerProcessor stores the processor and fires two goroutines: the Start
+	// goroutine and the per-shard timeout watcher.
+	executor.addManagerProcessor(context.Background(), "test-shard-id1")
 
-	// Run the batch watcher in a goroutine — it blocks on the mocked timer.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		executor.waitForWgWithTimeout(&wg,
-			metricsconstants.ShardDistributorExecutorProcessorStartTimeout,
-			"start batch timed out")
-	}()
-
-	// Advance mock time past the timeout to trigger the batch watcher.
+	// Wait until the timeout watcher has created its timer, then advance past it.
 	mockTimeSource.BlockUntil(1)
 	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
-	<-done
 
-	// Timeout metric must have been emitted by the batch watcher.
+	// Give the timeout watcher goroutine time to run after the timer fires.
+	time.Sleep(10 * time.Millisecond)
+
+	// Timeout metric must have been emitted by the per-shard watcher.
 	snapshot := testScope.Snapshot()
 	assert.Equal(t, int64(1), snapshot.Counters()["test.shard_distributor_executor_processor_start_timeout+"].Value())
 
-	// The processor is in the map (stored synchronously before the goroutine launched).
+	// The processor is in the map (stored synchronously before the goroutines launched).
 	_, ok := executor.managedProcessors.Load("test-shard-id1")
 	assert.True(t, ok)
 
@@ -897,7 +882,7 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 func TestStopManagerProcessor_StopTimeout(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	// blockCh keeps Stop blocked so the batch-watcher goroutine times out.
+	// blockCh keeps Stop blocked so the per-shard timeout watcher fires first.
 	blockCh := make(chan struct{})
 
 	processor := NewMockShardProcessor(ctrl)
@@ -911,24 +896,16 @@ func TestStopManagerProcessor_StopTimeout(t *testing.T) {
 	executor.metrics = testScope
 	executor.managedProcessors.Store("test-shard-id1", newManagedProcessor(processor, processorStateStarted))
 
-	// stopManagerProcessor removes from the map synchronously, then fires the Stop goroutine.
-	// waitForWgWithTimeout drives the shared timeout.
-	var wg sync.WaitGroup
-	executor.stopManagerProcessor("test-shard-id1", &wg)
+	// stopManagerProcessor removes from the map synchronously, then fires two goroutines:
+	// the Stop goroutine and the per-shard timeout watcher.
+	executor.stopManagerProcessor("test-shard-id1")
 
-	// Run the batch watcher in a goroutine — it blocks on the mocked timer.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		executor.waitForWgWithTimeout(&wg,
-			metricsconstants.ShardDistributorExecutorProcessorStopTimeout,
-			"stop batch timed out")
-	}()
-
-	// Advance mock time past the timeout to trigger the batch watcher.
+	// Wait until the timeout watcher has created its timer, then advance past it.
 	mockTimeSource.BlockUntil(1)
 	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
-	<-done
+
+	// Give the timeout watcher goroutine time to run after the timer fires.
+	time.Sleep(10 * time.Millisecond)
 
 	// Timeout metric must have fired.
 	snapshot := testScope.Snapshot()
