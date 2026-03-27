@@ -462,7 +462,7 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 		// READY once the entry is gone and addManagerProcessor will create a fresh one.
 		if existing.getState() == processorStateStopping {
 			e.logger.Info("shard processor add skipped: existing processor is still stopping, will retry on next heartbeat",
-				tag.Dynamic("shard-id", shardID))
+				tag.ShardKey(shardID))
 		}
 		return
 	}
@@ -481,7 +481,7 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 	go func() {
 		defer close(done)
 		if err := processor.Start(context.WithoutCancel(ctx)); err != nil {
-			e.logger.Error("shard processor start failed", tag.Dynamic("shard-id", shardID), tag.Error(err))
+			e.logger.Error("shard processor start failed", tag.ShardKey(shardID), tag.Error(err))
 			// Remove the failed processor so the next heartbeat can retry.
 			e.managedProcessors.Delete(shardID)
 			return
@@ -494,7 +494,7 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 		select {
 		case <-done:
 		case <-timer.Chan():
-			e.logger.Error("shard processor start timed out", tag.Dynamic("shard-id", shardID))
+			e.logger.Error("shard processor start timed out", tag.ShardKey(shardID))
 			e.metrics.Counter(metricsconstants.ShardDistributorExecutorProcessorStartTimeout).Inc(1)
 		}
 	}()
@@ -527,13 +527,12 @@ func (e *executorImpl[SP]) stopManagerProcessor(shardID string) <-chan struct{} 
 		select {
 		case <-done:
 		case <-timer.Chan():
-			e.logger.Error("shard processor stop timed out", tag.Dynamic("shard-id", shardID))
+			e.logger.Error("shard processor stop timed out", tag.ShardKey(shardID))
 			e.metrics.Counter(metricsconstants.ShardDistributorExecutorProcessorStopTimeout).Inc(1)
 		}
 	}()
 	return done
 }
-
 
 func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 	// We don't run the loop for invalid durations
@@ -586,7 +585,7 @@ func (e *executorImpl[SP]) compareAssignments(heartbeatAssignments map[string]*t
 		assignment, exists := heartbeatAssignments[shardID]
 		if !exists || assignment.Status != types.AssignmentStatusREADY {
 			e.logger.Warn("assignment divergence: local shard not in heartbeat or not ready",
-				tag.Dynamic("shard-id", shardID))
+				tag.ShardKey(shardID))
 			e.emitMetricsConvergence(false)
 			return ErrAssignmentDivergenceLocalShard
 		}
@@ -597,7 +596,7 @@ func (e *executorImpl[SP]) compareAssignments(heartbeatAssignments map[string]*t
 		if assignment.Status == types.AssignmentStatusREADY {
 			if !localAssignments[shardID] {
 				e.logger.Warn("assignment divergence: heartbeat shard not in local",
-					tag.Dynamic("shard-id", shardID))
+					tag.ShardKey(shardID))
 				e.emitMetricsConvergence(false)
 				return ErrAssignmentDivergenceHeartbeatShard
 			}

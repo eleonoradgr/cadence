@@ -863,12 +863,12 @@ func TestAddManagerProcessor_StartTimeout(t *testing.T) {
 	mockTimeSource.BlockUntil(1)
 	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
 
-	// Give the timeout watcher goroutine time to run after the timer fires.
-	time.Sleep(10 * time.Millisecond)
-
-	// Timeout metric must have been emitted by the per-shard watcher.
-	snapshot := testScope.Snapshot()
-	assert.Equal(t, int64(1), snapshot.Counters()["test.shard_distributor_executor_processor_start_timeout+"].Value())
+	// Poll until the per-shard watcher goroutine has run and emitted the metric.
+	assert.Eventually(t, func() bool {
+		snapshot := testScope.Snapshot()
+		c, ok := snapshot.Counters()["test.shard_distributor_executor_processor_start_timeout+"]
+		return ok && c.Value() == 1
+	}, time.Second, time.Millisecond)
 
 	// The processor is in the map (stored synchronously before the goroutines launched).
 	_, ok := executor.managedProcessors.Load("test-shard-id1")
@@ -898,26 +898,26 @@ func TestStopManagerProcessor_StopTimeout(t *testing.T) {
 
 	// stopManagerProcessor removes from the map synchronously, then fires two goroutines:
 	// the Stop goroutine and the per-shard timeout watcher.
-	executor.stopManagerProcessor("test-shard-id1")
+	doneCh := executor.stopManagerProcessor("test-shard-id1")
 
 	// Wait until the timeout watcher has created its timer, then advance past it.
 	mockTimeSource.BlockUntil(1)
 	mockTimeSource.Advance(processorAsyncOperationTimeout + time.Second)
 
-	// Give the timeout watcher goroutine time to run after the timer fires.
-	time.Sleep(10 * time.Millisecond)
-
-	// Timeout metric must have fired.
-	snapshot := testScope.Snapshot()
-	assert.Equal(t, int64(1), snapshot.Counters()["test.shard_distributor_executor_processor_stop_timeout+"].Value())
+	// Poll until the per-shard watcher goroutine has run and emitted the metric.
+	assert.Eventually(t, func() bool {
+		snapshot := testScope.Snapshot()
+		c, ok := snapshot.Counters()["test.shard_distributor_executor_processor_stop_timeout+"]
+		return ok && c.Value() == 1
+	}, time.Second, time.Millisecond)
 
 	// The processor must have been removed from the map synchronously before Stop().
 	_, ok := executor.managedProcessors.Load("test-shard-id1")
 	assert.False(t, ok)
 
-	// Unblock Stop so the goroutine exits cleanly.
+	// Unblock Stop and wait for the goroutine to exit cleanly (no goroutine leak).
 	close(blockCh)
-	time.Sleep(10 * time.Millisecond)
+	<-doneCh
 }
 
 func TestExecutorMetadata_SetAndGet(t *testing.T) {
