@@ -41,7 +41,7 @@ const (
 const (
 	heartbeatJitterCoeff           = 0.1 // 10% jitter
 	drainingHeartbeatTimeout       = 5 * time.Second
-	processorAsyncOperationTimeout = 2 * time.Minute //  maximum time allowed for a shard processor Start or Stop call.
+	processorAsyncOperationTimeout = 10 * time.Second //  maximum time allowed for a shard processor Start or Stop call.
 )
 
 type managedProcessor[SP ShardProcessor] struct {
