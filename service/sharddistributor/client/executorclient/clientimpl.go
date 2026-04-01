@@ -572,6 +572,7 @@ func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 				}
 				return true
 			})
+			shardCleanUpTimer.Reset(backoff.JitDuration(e.ttlShard, heartbeatJitterCoeff))
 		}
 	}
 }
