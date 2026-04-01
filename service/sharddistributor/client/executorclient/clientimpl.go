@@ -556,6 +556,7 @@ func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 			e.logger.Info("stopping cleanUpLoop: stop signal")
 			return
 		case <-shardCleanUpTimer.Chan():
+			e.logger.Info("running cleanUpLoop")
 			e.processorsToLastUse.Range(func(shardID string, lastUse time.Time) bool {
 				if lastUse.Add(e.ttlShard).Before(e.timeSource.Now()) && e.getMigrationMode() == types.MigrationModeONBOARDED {
 					mp, ok := e.managedProcessors.Load(shardID)
