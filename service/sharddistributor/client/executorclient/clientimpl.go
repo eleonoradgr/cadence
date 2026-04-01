@@ -476,6 +476,9 @@ func (e *executorImpl[SP]) addManagerProcessor(ctx context.Context, shardID stri
 	}
 	managedProcessor := newManagedProcessor(processor, processorStateStarting)
 	e.managedProcessors.Store(shardID, managedProcessor)
+	// Seed the last-use time so that the cleanup loop can evict shards that are
+	// assigned but never accessed via GetShardProcess within the TTL window.
+	e.processorsToLastUse.Store(shardID, e.timeSource.Now())
 
 	done := make(chan struct{})
 	go func() {
@@ -546,19 +549,22 @@ func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			e.logger.Info("stopping cleanUpLoop: context done")
 			return
 		case <-e.stopC:
+			e.logger.Info("stopping cleanUpLoop: stop signal")
 			return
 		case <-shardCleanUpTimer.Chan():
-			e.processorsToLastUse.Range(func(shardID string, time time.Time) bool {
-				if time.Add(e.ttlShard).Before(e.timeSource.Now()) {
-					if e.getMigrationMode() == types.MigrationModeONBOARDED {
-						mp, ok := e.managedProcessors.Load(shardID)
-						if ok {
-							mp.processor.SetShardStatus(types.ShardStatusDONE)
-						}
-					} else {
-						e.deleteShards([]string{shardID})
+			e.processorsToLastUse.Range(func(shardID string, lastUse time.Time) bool {
+				if lastUse.Add(e.ttlShard).Before(e.timeSource.Now()) && e.getMigrationMode() == types.MigrationModeONBOARDED {
+					mp, ok := e.managedProcessors.Load(shardID)
+					if ok {
+						e.logger.Info("shard cleanup: marking shard as done (idle past TTL)",
+							tag.ShardKey(shardID),
+							tag.Dynamic("idle_duration", e.timeSource.Since(lastUse).String()),
+						)
+						mp.processor.SetShardStatus(types.ShardStatusDONE)
+						e.metrics.Counter(metricsconstants.ShardDistributorExecutorShardsCleanedUpDone).Inc(1)
 					}
 					e.processorsToLastUse.Delete(shardID)
 				}
