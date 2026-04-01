@@ -540,9 +540,10 @@ func (e *executorImpl[SP]) stopManagerProcessor(shardID string) <-chan struct{} 
 func (e *executorImpl[SP]) shardCleanUpLoop(ctx context.Context) {
 	// We don't run the loop for invalid durations
 	if e.ttlShard <= 0 {
-
+		e.logger.Info("cleanUpLoop not configured", tag.Dynamic("ttlShard", e.ttlShard))
 		return
 	}
+	e.logger.Info("cleanUpLoop configured", tag.Dynamic("ttlShard", e.ttlShard))
 	shardCleanUpTimer := e.timeSource.NewTimer(backoff.JitDuration(e.ttlShard, heartbeatJitterCoeff))
 	defer shardCleanUpTimer.Stop()
 
