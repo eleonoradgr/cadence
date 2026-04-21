@@ -1494,10 +1494,6 @@ func (e *matchingEngineImpl) emitInfoOrDebugLog(
 }
 
 func (e *matchingEngineImpl) errIfShardOwnershipLost(ctx context.Context, taskList *tasklist.Identifier) error {
-	if !e.config.EnableTasklistOwnershipGuard() {
-		return nil
-	}
-
 	self, err := e.membershipResolver.WhoAmI()
 	if err != nil {
 		return fmt.Errorf("failed to lookup self im membership: %w", err)

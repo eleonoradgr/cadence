@@ -109,7 +109,6 @@ type (
 		// task gc configuration
 		MaxTimeBetweenTaskDeletes time.Duration
 
-		EnableTasklistOwnershipGuard               dynamicproperties.BoolPropertyFn
 		ExcludeShortLivedTaskListsFromShardManager dynamicproperties.BoolPropertyFn
 		PercentageOnboardedToShardManager          dynamicproperties.IntPropertyFn
 	}
@@ -215,7 +214,6 @@ func NewConfig(dc *dynamicconfig.Collection, hostName string, rpcConfig config.R
 		EnableTasklistIsolation:                    dc.GetBoolPropertyFilteredByDomain(dynamicproperties.EnableTasklistIsolation),
 		AppendTaskTimeout:                          dc.GetDurationPropertyFilteredByTaskListInfo(dynamicproperties.AppendTaskTimeout),
 		AsyncTaskDispatchTimeout:                   dc.GetDurationPropertyFilteredByTaskListInfo(dynamicproperties.AsyncTaskDispatchTimeout),
-		EnableTasklistOwnershipGuard:               dc.GetBoolProperty(dynamicproperties.MatchingEnableTasklistGuardAgainstOwnershipShardLoss),
 		LocalPollWaitTime:                          dc.GetDurationPropertyFilteredByTaskListInfo(dynamicproperties.LocalPollWaitTime),
 		LocalTaskWaitTime:                          dc.GetDurationPropertyFilteredByTaskListInfo(dynamicproperties.LocalTaskWaitTime),
 		PartitionUpscaleRPS:                        dc.GetIntPropertyFilteredByTaskListInfo(dynamicproperties.MatchingPartitionUpscaleRPS),

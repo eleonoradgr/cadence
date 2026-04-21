@@ -83,7 +83,6 @@ func TestNewConfig(t *testing.T) {
 		"TaskDispatchRPSTTL":                         {nil, time.Minute},
 		"MaxTimeBetweenTaskDeletes":                  {nil, time.Second},
 		"AllIsolationGroups":                         {nil, []string{"zone-1", "zone-2"}},
-		"EnableTasklistOwnershipGuard":               {dynamicproperties.MatchingEnableTasklistGuardAgainstOwnershipShardLoss, false},
 		"EnableGetNumberOfPartitionsFromCache":       {dynamicproperties.MatchingEnableGetNumberOfPartitionsFromCache, false},
 		"EnablePartitionEmptyCheck":                  {dynamicproperties.MatchingEnablePartitionEmptyCheck, true},
 		"PartitionUpscaleRPS":                        {dynamicproperties.MatchingPartitionUpscaleRPS, 30},
