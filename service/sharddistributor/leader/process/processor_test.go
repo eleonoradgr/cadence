@@ -447,7 +447,7 @@ func TestRunLoop_ContextCancellation(t *testing.T) {
 func TestRebalanceShards_WithUnassignedShardsButMigrationModeNotOnboarded(t *testing.T) {
 	migrationConfig := configtest.NewTestMigrationConfig(t, configtest.ConfigEntry{
 		Key:   dynamicproperties.ShardDistributorMigrationMode,
-		Value: config.MigrationModeDISTRIBUTEDPASSTHROUGH})
+		Value: config.MigrationModeLOCALPASSTHROUGH})
 	mocks := setupProcessorTestWithMigrationConfig(t, config.NamespaceTypeFixed, migrationConfig)
 	defer mocks.ctrl.Finish()
 	processor := mocks.factory.CreateProcessor(mocks.cfg, mocks.store, mocks.election).(*namespaceProcessor)
@@ -487,7 +487,7 @@ func TestRebalanceShards_ShadowModeWithStaleExecutors(t *testing.T) {
 	t.Run("stale executors are deleted in shadow mode", func(t *testing.T) {
 		migrationConfig := configtest.NewTestMigrationConfig(t, configtest.ConfigEntry{
 			Key:   dynamicproperties.ShardDistributorMigrationMode,
-			Value: config.MigrationModeDISTRIBUTEDPASSTHROUGH})
+			Value: config.MigrationModeLOCALPASSTHROUGH})
 		mocks := setupProcessorTestWithMigrationConfig(t, config.NamespaceTypeFixed, migrationConfig)
 		defer mocks.ctrl.Finish()
 		processor := mocks.factory.CreateProcessor(mocks.cfg, mocks.store, mocks.election).(*namespaceProcessor)
@@ -527,7 +527,7 @@ func TestRebalanceShards_ShadowModeWithStaleExecutors(t *testing.T) {
 	t.Run("delete executors error is non-blocking in shadow mode", func(t *testing.T) {
 		migrationConfig := configtest.NewTestMigrationConfig(t, configtest.ConfigEntry{
 			Key:   dynamicproperties.ShardDistributorMigrationMode,
-			Value: config.MigrationModeDISTRIBUTEDPASSTHROUGH})
+			Value: config.MigrationModeLOCALPASSTHROUGH})
 		mocks := setupProcessorTestWithMigrationConfig(t, config.NamespaceTypeFixed, migrationConfig)
 		defer mocks.ctrl.Finish()
 		processor := mocks.factory.CreateProcessor(mocks.cfg, mocks.store, mocks.election).(*namespaceProcessor)
@@ -567,7 +567,7 @@ func TestRebalanceShards_ShadowModeWithStaleExecutors(t *testing.T) {
 	t.Run("no stale executors - delete not called in shadow mode", func(t *testing.T) {
 		migrationConfig := configtest.NewTestMigrationConfig(t, configtest.ConfigEntry{
 			Key:   dynamicproperties.ShardDistributorMigrationMode,
-			Value: config.MigrationModeDISTRIBUTEDPASSTHROUGH})
+			Value: config.MigrationModeLOCALPASSTHROUGH})
 		mocks := setupProcessorTestWithMigrationConfig(t, config.NamespaceTypeFixed, migrationConfig)
 		defer mocks.ctrl.Finish()
 		processor := mocks.factory.CreateProcessor(mocks.cfg, mocks.store, mocks.election).(*namespaceProcessor)
