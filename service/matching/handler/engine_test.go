@@ -943,8 +943,8 @@ func TestGetTasklistsNotOwned(t *testing.T) {
 		shutdown:           make(chan struct{}),
 		membershipResolver: resolver,
 		taskListRegistry:   tasklist.NewTaskListRegistry(metrics.NewNoopMetricsClient()),
-		config: &config.Config{},
-		logger: log.NewNoop(),
+		config:             &config.Config{},
+		logger:             log.NewNoop(),
 	}
 	e.taskListRegistry.Register(*tl1, tl1m)
 	e.taskListRegistry.Register(*tl2, tl2m)
@@ -979,9 +979,9 @@ func TestShutDownTasklistsNotOwned(t *testing.T) {
 		shutdown:           make(chan struct{}),
 		membershipResolver: resolver,
 		taskListRegistry:   tasklist.NewTaskListRegistry(metrics.NewNoopMetricsClient()),
-		config: &config.Config{},
-		metricsClient: metrics.NewNoopMetricsClient(),
-		logger:        log.NewNoop(),
+		config:             &config.Config{},
+		metricsClient:      metrics.NewNoopMetricsClient(),
+		logger:             log.NewNoop(),
 	}
 	e.taskListRegistry.Register(*tl1, tl1m)
 	e.taskListRegistry.Register(*tl2, tl2m)

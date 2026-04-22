@@ -67,9 +67,9 @@ func TestGetTaskListManager_OwnerShip(t *testing.T) {
 		expectedError error
 	}{
 		{
-			name:                 "Not owned by current host",
-			lookUpResult:         "A",
-			whoAmIResult:         "B",
+			name:         "Not owned by current host",
+			lookUpResult: "A",
+			whoAmIResult: "B",
 
 			expectedError: new(cadence_errors.TaskListNotOwnedByHostError),
 		},
