@@ -111,6 +111,7 @@ type (
 
 		EnableTasklistOwnershipGuard               dynamicproperties.BoolPropertyFn
 		ExcludeShortLivedTaskListsFromShardManager dynamicproperties.BoolPropertyFn
+		EmergencyOffboardingFromShardManager       dynamicproperties.BoolPropertyFn
 		PercentageOnboardedToShardManager          dynamicproperties.IntPropertyFn
 	}
 
@@ -245,6 +246,7 @@ func NewConfig(dc *dynamicconfig.Collection, hostName string, rpcConfig config.R
 		EnableClientAutoConfig:                     dc.GetBoolPropertyFilteredByTaskListInfo(dynamicproperties.MatchingEnableClientAutoConfig),
 		EnableReturnAllTaskListKinds:               dc.GetBoolProperty(dynamicproperties.MatchingEnableReturnAllTaskListKinds),
 		ExcludeShortLivedTaskListsFromShardManager: dc.GetBoolProperty(dynamicproperties.MatchingExcludeShortLivedTaskListsFromShardManager),
+		EmergencyOffboardingFromShardManager:       dc.GetBoolProperty(dynamicproperties.MatchingEmergencyOffboardingFromShardManager),
 		PercentageOnboardedToShardManager:          dc.GetIntProperty(dynamicproperties.MatchingPercentageOnboardedToShardManager),
 	}
 }

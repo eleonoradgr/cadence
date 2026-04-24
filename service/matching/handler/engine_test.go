@@ -394,6 +394,7 @@ func TestCancelOutstandingPoll(t *testing.T) {
 				executor:         executor,
 				config: &config.Config{
 					ExcludeShortLivedTaskListsFromShardManager: func(opts ...dynamicproperties.FilterOption) bool { return false },
+					EmergencyOffboardingFromShardManager:       func(opts ...dynamicproperties.FilterOption) bool { return false },
 					PercentageOnboardedToShardManager:          func(opts ...dynamicproperties.FilterOption) int { return 100 },
 				},
 			}
@@ -425,6 +426,7 @@ func TestErrIfShardOwnershipLost(t *testing.T) {
 			config: &config.Config{
 				EnableTasklistOwnershipGuard:               func(opts ...dynamicproperties.FilterOption) bool { return true },
 				ExcludeShortLivedTaskListsFromShardManager: func(opts ...dynamicproperties.FilterOption) bool { return false },
+				EmergencyOffboardingFromShardManager:       func(opts ...dynamicproperties.FilterOption) bool { return false },
 				PercentageOnboardedToShardManager:          func(opts ...dynamicproperties.FilterOption) int { return 100 },
 			},
 			shutdown: make(chan struct{}),
@@ -566,6 +568,7 @@ func TestIsExcludedFromShardDistributor(t *testing.T) {
 			engine := &matchingEngineImpl{
 				config: &config.Config{
 					ExcludeShortLivedTaskListsFromShardManager: func(opts ...dynamicproperties.FilterOption) bool { return tc.flagEnabled },
+					EmergencyOffboardingFromShardManager:       func(opts ...dynamicproperties.FilterOption) bool { return false },
 					PercentageOnboardedToShardManager:          func(opts ...dynamicproperties.FilterOption) int { return 100 },
 				},
 			}
@@ -1221,6 +1224,7 @@ func TestUpdateTaskListPartitionConfig(t *testing.T) {
 				config: &config.Config{
 					EnableAdaptiveScaler:                       dynamicproperties.GetBoolPropertyFilteredByTaskListInfo(tc.enableAdaptiveScaler),
 					ExcludeShortLivedTaskListsFromShardManager: func(opts ...dynamicproperties.FilterOption) bool { return false },
+					EmergencyOffboardingFromShardManager:       func(opts ...dynamicproperties.FilterOption) bool { return false },
 					PercentageOnboardedToShardManager:          func(opts ...dynamicproperties.FilterOption) int { return 100 },
 				},
 				executor: mockExecutor,
@@ -1403,6 +1407,7 @@ func TestRefreshTaskListPartitionConfig(t *testing.T) {
 				executor:         mockExecutor,
 				config: &config.Config{
 					ExcludeShortLivedTaskListsFromShardManager: func(opts ...dynamicproperties.FilterOption) bool { return false },
+					EmergencyOffboardingFromShardManager:       func(opts ...dynamicproperties.FilterOption) bool { return false },
 					PercentageOnboardedToShardManager:          func(opts ...dynamicproperties.FilterOption) int { return 100 },
 				},
 			}
